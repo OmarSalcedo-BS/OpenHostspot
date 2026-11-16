@@ -30,6 +30,9 @@ class WiFiDirectAccessPoint:
         self._event = threading.Event()
         self._lock = threading.Lock()
         self._devices: dict[str, Any] = {}
+        self._device_details: dict[str, dict[str, str]] = {}
+        self._device_markers: dict[str, object] = {}
+        self._device_events: list[dict[str, str]] = []
         self._stopping = False
         self.status = "stopped"
         self.error: Optional[str] = None
@@ -47,50 +50,113 @@ class WiFiDirectAccessPoint:
             self._event.set()
 
     def _connection_requested(self, sender: Any, args: Any) -> None:
+        request = None
         try:
             request = args.get_connection_request()
             device_id = request.device_information.id
-        except Exception:
+            try:
+                device_name = request.device_information.name or "Dispositivo Wi-Fi"
+            except Exception:
+                logger.exception("No se pudo obtener el nombre del cliente Wi-Fi Direct")
+                device_name = "Dispositivo Wi-Fi"
+        except Exception as error:
             logger.exception("No se pudo leer la solicitud Wi-Fi Direct")
+            with self._lock:
+                if not self._stopping:
+                    self._device_events.append({"kind": "error", "name": "Dispositivo Wi-Fi", "error": str(error)})
+            if request is not None:
+                try:
+                    request.close()
+                except Exception:
+                    logger.exception("No se pudo cerrar la solicitud Wi-Fi Direct")
             return
 
         def accept() -> None:
-            comtypes.CoInitialize()
+            initialized = False
+            device = None
+            retained = False
             try:
+                comtypes.CoInitializeEx(comtypes.COINIT_MULTITHREADED)
+                initialized = True
                 async def connect() -> Any:
-                    return await WiFiDirectDevice.from_id_async(device_id)
+                    return await asyncio.wait_for(WiFiDirectDevice.from_id_async(device_id), timeout=15)
 
                 device = asyncio.run(connect())
                 if device is None:
-                    logger.error("Windows no pudo aceptar la conexión Wi-Fi Direct")
-                    return
+                    raise RuntimeError("Windows no pudo aceptar la conexión Wi-Fi Direct")
+                remote = ""
+                try:
+                    endpoints = device.get_connection_endpoint_pairs()
+                    if endpoints and endpoints[0].remote_host_name:
+                        remote = endpoints[0].remote_host_name.display_name
+                except Exception:
+                    logger.exception("No se pudo consultar la dirección del cliente Wi-Fi Direct")
+                actual_id = device.device_id
+                marker = object()
+                device.add_connection_status_changed(
+                    lambda sender, event: self._connection_changed(sender, event, marker)
+                )
                 with self._lock:
-                    stopping = self._stopping
-                    old_device = None if stopping else self._devices.pop(device_id, None)
-                    if not stopping:
-                        self._devices[device_id] = device
-                if stopping:
+                    accepting = (not self._stopping and
+                                 device.connection_status == WiFiDirectConnectionStatus.CONNECTED)
+                    old_device = self._devices.get(actual_id) if accepting else None
+                    if accepting:
+                        details = {"id": actual_id, "name": device_name, "ip": remote}
+                        self._devices[actual_id] = device
+                        self._device_details[actual_id] = details
+                        self._device_markers[actual_id] = marker
+                        retained = True
+                        if old_device is None:
+                            self._device_events.append({"kind": "connected", **details})
+                if not accepting:
                     device.close()
                     return
                 if old_device:
                     old_device.close()
-                device.add_connection_status_changed(self._connection_changed)
-            except Exception:
+            except Exception as error:
                 logger.exception("No se pudo aceptar la conexión Wi-Fi Direct")
+                with self._lock:
+                    if not self._stopping:
+                        self._device_events.append({"kind": "error", "name": device_name,
+                                                    "error": str(error) or type(error).__name__})
+                if device is not None and not retained:
+                    try:
+                        device.close()
+                    except Exception:
+                        logger.exception("No se pudo liberar el cliente Wi-Fi Direct")
             finally:
                 try:
                     request.close()
+                except Exception:
+                    logger.exception("No se pudo cerrar la solicitud Wi-Fi Direct")
                 finally:
-                    comtypes.CoUninitialize()
+                    if initialized:
+                        comtypes.CoUninitialize()
 
         threading.Thread(target=accept, daemon=True).start()
 
-    def _connection_changed(self, device: Any, args: Any) -> None:
+    def _connection_changed(self, device: Any, args: Any, marker: object) -> None:
         if device.connection_status == WiFiDirectConnectionStatus.DISCONNECTED:
             with self._lock:
+                if self._device_markers.get(device.device_id) is not marker:
+                    return
                 stored = self._devices.pop(device.device_id, None)
+                details = self._device_details.pop(device.device_id)
+                self._device_markers.pop(device.device_id)
+                if not self._stopping:
+                    self._device_events.append({"kind": "disconnected", **details})
             if stored:
                 stored.close()
+
+    def connected_devices(self) -> list[dict[str, str]]:
+        with self._lock:
+            return [details.copy() for details in self._device_details.values()]
+
+    def take_device_events(self) -> list[dict[str, str]]:
+        with self._lock:
+            events = self._device_events
+            self._device_events = []
+            return events
 
     def start(self, ssid: str, password: str, timeout: float = 15) -> dict[str, Any]:
         if self._publisher is not None:
@@ -128,6 +194,9 @@ class WiFiDirectAccessPoint:
             self._stopping = True
             devices = list(self._devices.values())
             self._devices.clear()
+            self._device_details.clear()
+            self._device_markers.clear()
+            self._device_events.clear()
         errors = []
         if self._listener is not None and self._listener_token is not None:
             try:

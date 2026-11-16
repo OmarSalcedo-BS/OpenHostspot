@@ -9,13 +9,19 @@ from gui import OpenHotspotApp
 
 
 @pytest.fixture
-def app():
-    window = OpenHotspotApp(auto_check=False)
-    window.withdraw()
-    window.update()
-    yield window
-    if not window._closed:
-        window._finish_close()
+def app(tmp_path):
+    from core.settings_store import SettingsStore
+
+    with patch("gui.SettingsStore", return_value=SettingsStore(tmp_path / "settings.json")), \
+         patch("gui.StartupManager") as startup, \
+         patch("gui.SleepInhibitor") as power:
+        startup.return_value.status.return_value = "disabled"
+        window = OpenHotspotApp(auto_check=False)
+        window.withdraw()
+        window.update()
+        yield window
+        if not window._closed:
+            window._finish_close()
 
 
 def test_incompatible_adapter_blocks_real_start(app):
@@ -58,13 +64,17 @@ def test_real_start_and_stop_run_through_controller(app):
         app._start()
         wait_for_operation()
         assert app._active
+        app._power.set_active.assert_called_with(True)
         assert "internet no compartido" in app.hotspot_page.banner.cget("text")
+        assert app.hotspot_page.qr_image is not None
         warning.assert_called_once()
         controller_class.assert_called_once_with("OpenHotspot", "password123", "Ethernet")
         controller.start.assert_called_once_with(enable_internet_sharing=True)
         app._stop()
         wait_for_operation()
         assert not app._active
+        app._power.set_active.assert_called_with(False)
+        assert app.hotspot_page.qr_image is None
         controller.stop.assert_called_once()
 
 
@@ -118,14 +128,140 @@ def test_settings_controls_are_real_and_follow_session_state(app):
 def test_navigation_transitions_remain_inside_main_window(app):
     app._show_page("settings")
     app._show_page("devices")
-    deadline = time.monotonic() + 2
-    while app._transition_id is not None and time.monotonic() < deadline:
-        app.update()
-        time.sleep(0.01)
-    assert app._transition_id is None
+    app.update()
     assert app._current_page == "devices"
     assert app.devices_page.place_info()["relx"] == "0"
-    assert not app.settings_page.place_info()
+    assert app.devices_page.master.winfo_children()[-1] is app.devices_page
+    assert app.settings_page.place_info()["relx"] == "0"
+
+
+def test_confirmed_device_events_update_both_pages(app):
+    app._active = True
+    app._controller = MagicMock()
+    network = app._controller.network
+    network.connected_devices.return_value = [{"id": "peer", "name": "Teléfono", "ip": "192.168.137.2"}]
+    network.take_device_events.return_value = [{"kind": "connected", "name": "Teléfono"}]
+    app._tick_observer()
+    assert "1 conexión" in app.hotspot_page.device_count.cget("text")
+    assert "Se conectó: Teléfono" == app.hotspot_page.device_notice.cget("text")
+    assert app.activity_notice.cget("text") == "Se conectó: Teléfono"
+    assert "Se conectó: Teléfono" in app.devices_page._events[0]
+    assert "Teléfono" in app.hotspot_page.device_list.winfo_children()[0].cget("text")
+    assert "Teléfono" in app.devices_page.connected_frame.winfo_children()[0].cget("text")
+
+
+def test_traffic_remains_visible_if_neighbor_query_fails(app):
+    from concurrent.futures import Future
+
+    rate = Future()
+    rate.set_result({"sent_mbps": 0.02, "received_mbps": 2.0})
+    app._show_traffic(rate)
+    assert "20.0 Kbps" in app.hotspot_page.traffic_label.cget("text")
+    assert "2.00 Mbps" in app.devices_page.traffic_label.cget("text")
+    error = Future()
+    error.set_exception(RuntimeError("sin vecinos"))
+    app._show_observation(error)
+    assert "20.0 Kbps" in app.hotspot_page.traffic_label.cget("text")
+    assert "sin vecinos" in app.devices_page.clients_status.cget("text")
+
+
+def test_preferences_do_not_save_partially_edited_network(app):
+    app.ssid.set("Red guardada")
+    app.password.set("password123")
+    app.public_interface.set("Ethernet")
+    app._save_network_settings()
+    app.ssid.set("Edición pendiente")
+    app.password.set("incompleta")
+    app.show_qr.set(False)
+    app.speed_unit.set("Mbps")
+    app._visual_changed()
+    saved = app._settings_store.load()
+    assert (saved.ssid, saved.password, saved.public_interface) == ("Red guardada", "password123", "Ethernet")
+    assert not saved.show_qr and saved.speed_unit == "Mbps"
+
+
+def test_saved_settings_are_loaded_and_password_stays_hidden(tmp_path):
+    from core.settings_store import AppSettings, SettingsStore
+
+    store = SettingsStore(tmp_path / "settings.json")
+    store.save(AppSettings(ssid="Mi red", password="password123", public_interface="Ethernet",
+                           prevent_sleep=False, show_qr=False, speed_unit="Mbps"))
+    with patch("gui.SettingsStore", return_value=store), \
+         patch("gui.StartupManager") as startup, patch("gui.SleepInhibitor"):
+        startup.return_value.status.return_value = "disabled"
+        window = OpenHotspotApp(auto_check=False)
+        try:
+            window.withdraw()
+            assert (window.ssid.get(), window.password.get(), window.public_interface.get()) == (
+                "Mi red", "password123", "Ethernet")
+            assert window.hotspot_page.password_entry.cget("show") == "*"
+            assert not window.prevent_sleep.get() and not window.show_qr.get()
+            assert window.speed_unit.get() == "Mbps"
+        finally:
+            window._finish_close()
+
+
+def test_corrupt_settings_are_not_overwritten(app):
+    app._settings_available = False
+    app._settings_store.path.write_text("corrupto", encoding="utf-8")
+    with patch("gui.messagebox.showerror") as error:
+        app._save_network_settings()
+    error.assert_called_once()
+    assert app._settings_store.path.read_text(encoding="utf-8") == "corrupto"
+
+
+def test_startup_error_restores_switch(app):
+    app._startup.set_enabled.side_effect = PermissionError("denegado")
+    app.start_with_windows.set(True)
+    with patch("gui.messagebox.showerror") as error:
+        app._change_startup()
+    assert not app.start_with_windows.get()
+    assert "denegado" in app.settings_page.startup_status.cget("text")
+    error.assert_called_once()
+
+
+def test_display_preferences_hide_notices_and_restore_qr(app):
+    from concurrent.futures import Future
+    from core.network_manager import NetworkManager
+
+    app._active = True
+    app._current_qr = NetworkManager("red", "password123").generate_wifi_qr()["qr"]
+    app.show_qr.set(False)
+    app.show_device_notices.set(False)
+    app.speed_unit.set("Mbps")
+    app._visual_changed()
+    assert app.hotspot_page.qr_image is None
+    app._controller = MagicMock()
+    app._controller.network.connected_devices.return_value = []
+    app._controller.network.take_device_events.return_value = [{"kind": "connected", "name": "Teléfono"}]
+    app._tick_observer()
+    assert app.hotspot_page.device_notice.cget("text") == ""
+    assert "Teléfono" in app.devices_page._events[-1]
+    rate = Future()
+    rate.set_result({"sent_mbps": 0.02, "received_mbps": 2.0})
+    app._show_traffic(rate)
+    assert "0.02 Mbps" in app.hotspot_page.traffic_label.cget("text")
+    app.show_qr.set(True)
+    app._visual_changed()
+    assert app.hotspot_page.qr_image is not None
+
+
+def test_power_follows_active_and_aborted_state(app):
+    app._apply_power()
+    app._power.set_active.assert_called_with(False)
+    app._active = True
+    app._apply_power()
+    app._power.set_active.assert_called_with(True)
+    app._abort_reported = True
+    app._apply_power()
+    app._power.set_active.assert_called_with(False)
+    app._abort_reported = False
+    app._power.set_active.side_effect = OSError("denegado")
+    with patch("gui.messagebox.showwarning") as warning:
+        app._apply_power()
+    assert "denegado" in app.settings_page.power_status.cget("text")
+    warning.assert_called_once()
+    app._power.set_active.side_effect = None
 
 
 def test_speed_test_runs_without_blocking_hotspot_controls(app):

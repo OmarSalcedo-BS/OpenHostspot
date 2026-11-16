@@ -83,28 +83,28 @@ class DirectHotspotController:
         if not result["success"]:
             return result
         warning = None
-        if enable_internet_sharing:
-            try:
-                deadline = time.monotonic() + 8
-                while True:
+        try:
+            deadline = time.monotonic() + 8
+            while True:
+                if self.network.status != "started":
+                    raise RuntimeError("La publicación Wi-Fi Direct dejó de estar activa.")
+                adapters = _direct_adapters()
+                active = {guid: adapter for guid, adapter in adapters.items() if adapter["Up"]}
+                if len(active) > 1:
+                    raise RuntimeError("Se activaron varios adaptadores Wi-Fi Direct.")
+                if active:
+                    guid = next(iter(active))
+                    time.sleep(0.5)
+                    confirmed = _direct_adapters()
+                    active_confirmed = {key: value for key, value in confirmed.items() if value["Up"]}
+                    if set(active_confirmed) != {guid}:
+                        raise RuntimeError("Cambió la identificación del adaptador Wi-Fi Direct.")
                     if self.network.status != "started":
                         raise RuntimeError("La publicación Wi-Fi Direct dejó de estar activa.")
-                    adapters = _direct_adapters()
-                    active = {guid: adapter for guid, adapter in adapters.items() if adapter["Up"]}
-                    if len(active) > 1:
-                        raise RuntimeError("Se activaron varios adaptadores Wi-Fi Direct.")
-                    if active:
-                        guid = next(iter(active))
-                        time.sleep(0.5)
-                        confirmed = _direct_adapters()
-                        active_confirmed = {key: value for key, value in confirmed.items() if value["Up"]}
-                        if set(active_confirmed) != {guid}:
-                            raise RuntimeError("Cambió la identificación del adaptador Wi-Fi Direct.")
-                        if self.network.status != "started":
-                            raise RuntimeError("La publicación Wi-Fi Direct dejó de estar activa.")
-                        adapter = active_confirmed[guid]
-                        self.private_interface = adapter["Name"]
-                        self.private_guid = guid
+                    adapter = active_confirmed[guid]
+                    self.private_interface = adapter["Name"]
+                    self.private_guid = guid
+                    if enable_internet_sharing:
                         ics = self.bridge.enable_ics(
                             self.public_interface, self.private_interface, private_connection_guid=guid
                         )
@@ -112,12 +112,12 @@ class DirectHotspotController:
                             self._ics_enabled = True
                         else:
                             warning = ics["error"]
-                        break
-                    if time.monotonic() >= deadline:
-                        raise RuntimeError("No se detectó un adaptador Wi-Fi Direct activo.")
-                    time.sleep(0.25)
-            except RuntimeError as error:
-                warning = f"{error} No se modificó ICS."
+                    break
+                if time.monotonic() >= deadline:
+                    raise RuntimeError("No se detectó un adaptador Wi-Fi Direct activo.")
+                time.sleep(0.25)
+        except RuntimeError as error:
+            warning = f"{error} No se modificó ICS."
         return {"success": True, "internet_shared": self._ics_enabled, "warning": warning}
 
     def stop(self) -> dict[str, Any]:

@@ -9,10 +9,11 @@ verificarse en cada equipo.
 
 - **Crear una red Wi-Fi Direct** - Requiere un controlador compatible con Wi-Fi Direct GO
 - **Compartir internet (ICS)** - Selecciona la conexión de origen; el destino se detecta automáticamente
-- **Generación de códigos QR** - Para conexión rápida de dispositivos
-- **Dispositivos observados** - Vecinos IPv4 del adaptador del hotspot, sin prometer un inventario completo
+- **Código QR integrado** - Aparece al iniciar el punto de acceso y se oculta al detenerlo
+- **Dispositivos y avisos** - Conexiones comunicadas por Wi-Fi Direct y vecinos IPv4 observados
 - **Velocidad** - Tráfico del adaptador en tiempo real y prueba de internet bajo demanda
 - **Interfaz gráfica** - Sin consola al usar la entrada gráfica, solicita administrador e integra los ajustes
+- **Ajustes persistentes** - Recuerda la red y permite configurar inicio, energía y visualización
 - **Código modular y extensible** - Arquitectura limpia para fácil mantenimiento
 
 ## 📋 Requisitos
@@ -62,11 +63,14 @@ dispositivo: no se garantiza que Wi-Fi Direct proporcione acceso a internet.
 
 La interfaz usa Wi-Fi Direct, no el botón de zona móvil de Windows. Wi-Fi como
 origen podría requerir compatibilidad de funcionamiento simultáneo; no se ha
-verificado un modo repetidor. La vista Dispositivos consulta los vecinos IPv4
-observados por Windows en el adaptador detectado: pueden estar desactualizados
-o faltar dispositivos, por lo que no es un listado fiable de conexiones activas.
-No se muestran velocidades por cliente. El tráfico enviado y recibido es el
-total del adaptador, no necesariamente solo tráfico de internet.
+verificado un modo repetidor. La pantalla principal y la vista Dispositivos
+muestran conexiones notificadas por Wi-Fi Direct y avisan de altas y bajas.
+La vista Dispositivos también muestra por separado vecinos IPv4 observados;
+estos pueden estar desactualizados y no confirman una conexión activa. Windows
+puede no notificar todos los dispositivos, de modo que no se garantiza una
+lista completa. No se muestran velocidades por cliente. Los contadores se
+actualizan aproximadamente cada segundo y miden el tráfico total enviado y
+recibido por el adaptador, no necesariamente solo tráfico de internet.
 La asociación automática se basa en los cambios observados en Windows y no es
 una identificación directa del publicador; evita iniciar otras sesiones Wi-Fi
 Direct simultáneamente. El encaminamiento usa ICS de Windows, no el motor
@@ -82,6 +86,34 @@ no están disponibles: el motor actual no los aplica de forma verificable.
 El inicio gráfico oculta la consola propia de la aplicación; una terminal
 desde la que se lance permanece abierta, y Windows sigue mostrando el aviso
 UAC. Los errores se registran en `%LOCALAPPDATA%\OpenHotspot\openhotspot.log`.
+
+### Ajustes de la aplicación
+
+En **Ajustes**, guarda el nombre, la contraseña y el origen mediante el botón
+correspondiente; también se guardan al intentar iniciar el hotspot con datos
+válidos. Los demás interruptores y la unidad de tráfico se guardan al cambiarlos,
+sin guardar ediciones pendientes de la red. Puedes ocultar el QR y los avisos
+de dispositivos o elegir Mbps; los eventos siguen en la vista Dispositivos.
+
+Los ajustes se guardan en `%LOCALAPPDATA%\OpenHotspot\settings.json`. La contraseña
+se cifra con DPAPI para el perfil del usuario de Windows que ejecuta la aplicación;
+los demás campos son legibles. Si autorizas UAC con otra cuenta, se utilizará
+el perfil de esa cuenta. Una contraseña cifrada no puede recuperarse necesariamente
+desde otra cuenta o instalación de Windows. Si el archivo no puede leerse o
+descifrarse, se notifica y no se sobrescribe automáticamente; corrige o respalda
+el archivo antes de volver a configurar.
+
+**Abrir OpenHotspot al iniciar sesión** es opcional y está desactivado hasta que
+se habilite. Solo abre la aplicación: no inicia el hotspot. Windows puede pedir
+confirmación UAC y una entrada de inicio existente con el mismo nombre pero
+distinto comando no se modifica.
+
+**Evitar suspensión automática** viene activado por defecto y solicita a
+Windows mantener el sistema despierto únicamente durante una sesión activa.
+No cambia el plan de energía, permite apagar la pantalla y no impide una
+suspensión manual, el cierre de tapa ni el apagado del adaptador por su
+controlador. Tampoco garantiza evitar cierres inesperados de la aplicación;
+consulta el registro si ocurren.
 
 ## 📖 Documentación Detallada
 
@@ -131,6 +163,9 @@ confirman clientes conectados ni permiten medir tráfico o desconectarlos.
 
 #### `core/hotspot_observer.py` y `core/speed_test.py`
 Observan vecinos y contadores del adaptador, y realizan la prueba de velocidad.
+
+#### `core/settings_store.py` y `core/windows_integration.py`
+Guardan las preferencias y gestionan el inicio de sesión y la solicitud de energía.
 
 #### `ui/`
 Vistas y estilos compartidos de la interfaz gráfica.

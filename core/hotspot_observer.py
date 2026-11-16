@@ -14,7 +14,6 @@ import psutil
 class HotspotObserver:
     def __init__(self, adapter_guid: str) -> None:
         self.guid = str(uuid.UUID(adapter_guid.strip("{}")))
-        self._previous: tuple[float, int, int] | None = None
 
     def snapshot(self) -> dict[str, Any]:
         command = (
@@ -41,9 +40,6 @@ class HotspotObserver:
             if (not isinstance(data, dict) or not isinstance(data.get("Name"), str)
                     or not isinstance(data.get("Neighbors"), list)):
                 raise ValueError("respuesta incompleta de Windows")
-            counters = psutil.net_io_counters(pernic=True).get(data["Name"])
-            if counters is None:
-                raise ValueError("no hay contadores para el adaptador del hotspot")
             neighbors = []
             for entry in data["Neighbors"]:
                 if not isinstance(entry, dict):
@@ -59,19 +55,35 @@ class HotspotObserver:
                         or int(normalized[:2], 16) & 1 or normalized == "00-00-00-00-00-00"):
                     continue
                 neighbors.append({"ip": ip, "mac": normalized, "state": state})
-            now = time.monotonic()
-            sent, received = counters.bytes_sent, counters.bytes_recv
-            rates = None
-            if self._previous is not None:
-                previous_time, previous_sent, previous_received = self._previous
-                elapsed = now - previous_time
-                if elapsed > 0 and sent >= previous_sent and received >= previous_received:
-                    rates = {
-                        "sent_mbps": (sent - previous_sent) * 8 / elapsed / 1_000_000,
-                        "received_mbps": (received - previous_received) * 8 / elapsed / 1_000_000,
-                    }
-            self._previous = (now, sent, received)
-            return {"neighbors": neighbors, "rates": rates}
+            return {"neighbors": neighbors}
         except (OSError, subprocess.SubprocessError, ValueError, TypeError) as error:
             detail = error.stderr.strip() if isinstance(error, subprocess.CalledProcessError) and error.stderr else str(error)
             raise RuntimeError(f"No se pudo observar el adaptador del hotspot: {detail}") from error
+
+
+class TrafficMonitor:
+    def __init__(self, interface_name: str) -> None:
+        self.interface_name = interface_name
+        self._previous: tuple[float, int, int] | None = None
+
+    def sample(self) -> dict[str, float] | None:
+        try:
+            counters = psutil.net_io_counters(pernic=True, nowrap=False).get(self.interface_name)
+        except OSError as error:
+            raise RuntimeError(f"No se pudieron leer los contadores de red: {error}") from error
+        if counters is None:
+            raise RuntimeError("No hay contadores para el adaptador del hotspot.")
+        now = time.monotonic()
+        sent, received = counters.bytes_sent, counters.bytes_recv
+        previous = self._previous
+        self._previous = (now, sent, received)
+        if previous is None:
+            return None
+        previous_time, previous_sent, previous_received = previous
+        elapsed = now - previous_time
+        if elapsed <= 0 or sent < previous_sent or received < previous_received:
+            return None
+        return {
+            "sent_mbps": (sent - previous_sent) * 8 / elapsed / 1_000_000,
+            "received_mbps": (received - previous_received) * 8 / elapsed / 1_000_000,
+        }

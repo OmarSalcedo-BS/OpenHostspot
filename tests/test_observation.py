@@ -6,14 +6,14 @@ from unittest.mock import patch
 
 import pytest
 
-from core.hotspot_observer import HotspotObserver
+from core.hotspot_observer import HotspotObserver, TrafficMonitor
 from core import speed_test
 
 
 GUID = "f914a53a-ffe3-43d7-b56d-512edf1ecb5c"
 
 
-def test_observer_scopes_and_filters_neighbors_and_calculates_rates():
+def test_observer_scopes_and_filters_neighbors():
     response = {
         "Name": "Virtual",
         "Neighbors": [
@@ -22,32 +22,34 @@ def test_observer_scopes_and_filters_neighbors_and_calculates_rates():
             {"IP": "192.168.137.3", "MAC": "00-00-00-00-00-00", "State": "Stale"},
         ],
     }
-    counters = [
-        {"Virtual": SimpleNamespace(bytes_sent=100, bytes_recv=200)},
-        {"Virtual": SimpleNamespace(bytes_sent=1000100, bytes_recv=500200)},
-    ]
-    with patch("core.hotspot_observer.subprocess.run") as run, \
-         patch("core.hotspot_observer.psutil.net_io_counters", side_effect=counters), \
-         patch("core.hotspot_observer.time.monotonic", side_effect=[10, 12]):
+    with patch("core.hotspot_observer.subprocess.run") as run:
         run.return_value.stdout = json.dumps(response)
-        observer = HotspotObserver(GUID)
-        first = observer.snapshot()
-        second = observer.snapshot()
-    assert first["rates"] is None
-    assert second["rates"] == {"sent_mbps": 4.0, "received_mbps": 2.0}
-    assert second["neighbors"] == [{"ip": "192.168.137.2", "mac": "02-00-00-00-00-01",
+        result = HotspotObserver(GUID).snapshot()
+    assert result["neighbors"] == [{"ip": "192.168.137.2", "mac": "02-00-00-00-00-01",
                                     "state": "Reachable"}]
     command = run.call_args.args[0][-1]
     assert "[guid]$_.InterfaceGuid" in command
     assert "InterfaceIndex -eq $adapter.ifIndex" in command
 
 
-def test_observer_does_not_invent_zero_traffic_for_missing_counters():
-    with patch("core.hotspot_observer.subprocess.run") as run, \
-         patch("core.hotspot_observer.psutil.net_io_counters", return_value={}):
-        run.return_value.stdout = json.dumps({"Name": "Virtual", "Neighbors": []})
-        with pytest.raises(RuntimeError, match="no hay contadores"):
-            HotspotObserver(GUID).snapshot()
+def test_traffic_is_sampled_independently_of_neighbors():
+    counters = [
+        {"Virtual": SimpleNamespace(bytes_sent=100, bytes_recv=200)},
+        {"Virtual": SimpleNamespace(bytes_sent=1000100, bytes_recv=500200)},
+        {"Virtual": SimpleNamespace(bytes_sent=10, bytes_recv=20)},
+    ]
+    with patch("core.hotspot_observer.psutil.net_io_counters", side_effect=counters), \
+         patch("core.hotspot_observer.time.monotonic", side_effect=[10, 12, 13]):
+        monitor = TrafficMonitor("Virtual")
+        assert monitor.sample() is None
+        assert monitor.sample() == {"sent_mbps": 4.0, "received_mbps": 2.0}
+        assert monitor.sample() is None
+
+
+def test_traffic_does_not_invent_zero_for_missing_counters():
+    with patch("core.hotspot_observer.psutil.net_io_counters", return_value={}):
+        with pytest.raises(RuntimeError, match="No hay contadores"):
+            TrafficMonitor("Virtual").sample()
 
 
 def test_observer_rejects_malformed_guid():

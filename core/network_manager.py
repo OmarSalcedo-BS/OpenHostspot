@@ -262,7 +262,7 @@ class NetworkManager:
                 return value
 
             wifi_string: str = f"WIFI:S:{escape(self.ssid)};T:WPA;P:{escape(self.password)};;"
-            qr = qrcode.QRCode(version=1, box_size=2, border=1)
+            qr = qrcode.QRCode(version=1, box_size=2, border=4)
             qr.add_data(wifi_string)
             qr.make(fit=True)
             

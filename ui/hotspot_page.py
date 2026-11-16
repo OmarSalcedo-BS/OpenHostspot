@@ -1,8 +1,9 @@
-"""Vistas integradas de configuración, ajustes y dispositivos."""
+"""Vista principal del punto de acceso."""
 
-from typing import Any, Callable
+from typing import Any
 
 import customtkinter as ctk
+from PIL import Image
 
 from .theme import ACCENT, MUTED, card, label
 
@@ -78,13 +79,9 @@ class HotspotPage(ctk.CTkFrame):
         ).grid(row=9, column=1, sticky="w", padx=8, pady=(6, 0))
         self.share_switch = ctk.CTkSwitch(
             settings, text="Compartir internet (ICS)", variable=app.share_internet,
-            progress_color=ACCENT, command=app._update_controls,
+            progress_color=ACCENT, command=app._sharing_changed,
         )
         self.share_switch.grid(row=10, column=0, columnspan=2, sticky="w", padx=20, pady=(24, 10))
-        ctk.CTkButton(settings, text="Ver código QR", height=34, fg_color="#24384a",
-                      hover_color="#31516a", command=app._show_qr).grid(
-                          row=11, column=0, sticky="w", padx=20, pady=(6, 20))
-
         right = ctk.CTkFrame(self, fg_color="transparent")
         right.grid(row=2, column=1, sticky="nsew")
         right.grid_columnconfigure(0, weight=1)
@@ -105,87 +102,48 @@ class HotspotPage(ctk.CTkFrame):
             fg_color="#24384a", hover_color="#31516a", command=app._check_system,
         )
         self.check_button.grid(row=4, column=0, sticky="ew", padx=18, pady=(0, 18))
-        information = card(right)
-        information.grid(row=1, column=0, sticky="ew", pady=(14, 0))
-        label(information, "Antes de comenzar", size=15, bold=True).pack(anchor="w", padx=18, pady=(18, 10))
-        label(information, "Se requiere administrador y compatibilidad con Wi-Fi Direct GO. "
-              "ICS puede modificar la configuración de red de Windows.", size=12, color=MUTED,
-              wraplength=270, justify="left").pack(anchor="w", padx=18, pady=(0, 14))
-        label(information, "El acceso a internet y el uso de Wi-Fi como origen dependen del "
-              "controlador y necesitan verificarse con un dispositivo conectado.", size=12,
-              color=MUTED, wraplength=270, justify="left").pack(anchor="w", padx=18, pady=(0, 18))
+        active = card(right)
+        active.grid(row=1, column=0, sticky="nsew", pady=(14, 0))
+        active.grid_columnconfigure(1, weight=1)
+        label(active, "Red y dispositivos", size=15, bold=True).grid(
+            row=0, column=0, columnspan=2, sticky="w", padx=16, pady=(14, 8))
+        self.qr_label = label(active, "El QR aparece\nal iniciar", size=11, color=MUTED, width=144, height=144)
+        self.qr_label.grid(row=1, column=0, rowspan=3, padx=(16, 10), pady=(0, 8))
+        self.traffic_label = label(active, "Tráfico: sin datos", size=11, color=MUTED,
+                                   anchor="w", justify="left", wraplength=150)
+        self.traffic_label.grid(row=1, column=1, sticky="ew", padx=(0, 12))
+        self.device_count = label(active, "Sin conexiones confirmadas", size=11, color=MUTED,
+                                  anchor="w", wraplength=150, justify="left")
+        self.device_count.grid(row=2, column=1, sticky="ew", padx=(0, 12))
+        self.device_notice = label(active, "", size=11, color="#8bddfb",
+                                   anchor="w", wraplength=150, justify="left")
+        self.device_notice.grid(row=3, column=1, sticky="ew", padx=(0, 12), pady=(0, 6))
+        self.device_list = ctk.CTkScrollableFrame(active, fg_color="transparent", height=68)
+        self.device_list.grid(row=4, column=0, columnspan=2, sticky="ew", padx=10, pady=(0, 10))
+        self._device_rows: tuple[tuple[str, str, str], ...] | None = None
+        self.qr_image: ctk.CTkImage | None = None
 
-
-class SettingsPage(ctk.CTkFrame):
-    def __init__(self, parent: Any, app: Any) -> None:
-        super().__init__(parent, fg_color="transparent")
-        label(self, "AJUSTES", size=10, color=ACCENT, bold=True).pack(anchor="w")
-        label(self, "Configuración", size=25, bold=True).pack(anchor="w", pady=(2, 4))
-        label(self, "Opciones de esta sesión", size=12, color=MUTED).pack(anchor="w", pady=(0, 20))
-        network = card(self)
-        network.pack(fill="x", pady=(0, 14))
-        label(network, "Red", size=16, bold=True).pack(anchor="w", padx=20, pady=(18, 10))
-        self.share_switch = ctk.CTkSwitch(
-            network, text="Compartir internet mediante ICS", variable=app.share_internet,
-            progress_color=ACCENT, command=app._update_controls,
-        )
-        self.share_switch.pack(anchor="w", padx=20, pady=(0, 8))
-        label(network, "Windows configurará ICS solo si identifica el adaptador de destino.",
-              size=12, color=MUTED, wraplength=700, justify="left").pack(anchor="w", padx=20, pady=(0, 18))
-        privacy = card(self)
-        privacy.pack(fill="x", pady=(0, 14))
-        label(privacy, "Privacidad", size=16, bold=True).pack(anchor="w", padx=20, pady=(18, 10))
-        self.password_switch = ctk.CTkSwitch(
-            privacy, text="Mostrar contraseña en la pantalla principal",
-            variable=app.show_password, progress_color=ACCENT, command=app._toggle_password,
-        )
-        self.password_switch.pack(anchor="w", padx=20, pady=(0, 18))
-
-
-class DevicesPage(ctk.CTkFrame):
-    def __init__(self, parent: Any, speed_test: Callable[[], None]) -> None:
-        super().__init__(parent, fg_color="transparent")
-        self.grid_columnconfigure(0, weight=1)
-        self.grid_rowconfigure(3, weight=1)
-        label(self, "DISPOSITIVOS Y VELOCIDAD", size=10, color=ACCENT, bold=True).grid(row=0, column=0, sticky="w")
-        label(self, "Actividad del hotspot", size=25, bold=True).grid(row=1, column=0, sticky="w", pady=(2, 14))
-        traffic = card(self)
-        traffic.grid(row=2, column=0, sticky="ew", pady=(0, 14))
-        traffic.grid_columnconfigure(0, weight=1)
-        label(traffic, "Tráfico actual del adaptador", size=16, bold=True).grid(
-            row=0, column=0, sticky="w", padx=18, pady=(16, 4))
-        self.traffic_label = label(traffic, "Sin datos: inicia el hotspot con ICS.", size=13, color=MUTED, anchor="w")
-        self.traffic_label.grid(row=1, column=0, sticky="ew", padx=18, pady=(0, 10))
-        self.speed_label = label(traffic, "Prueba de velocidad: sin ejecutar.", size=12, color=MUTED, anchor="w")
-        self.speed_label.grid(row=2, column=0, sticky="ew", padx=18, pady=(0, 16))
-        self.speed_button = ctk.CTkButton(
-            traffic, text="Medir internet", fg_color="#24384a", hover_color="#31516a", command=speed_test,
-        )
-        self.speed_button.grid(row=0, column=1, rowspan=2, padx=18, pady=16)
-        label(traffic, "La prueba usa Cloudflare, comparte tu IP y consume hasta 13 MiB de datos.", size=11,
-              color=MUTED, anchor="w").grid(row=3, column=0, columnspan=2, sticky="w", padx=18, pady=(0, 14))
-        clients = card(self)
-        clients.grid(row=3, column=0, sticky="nsew")
-        clients.grid_columnconfigure(0, weight=1)
-        clients.grid_rowconfigure(2, weight=1)
-        label(clients, "Vecinos observados", size=16, bold=True).grid(
-            row=0, column=0, sticky="w", padx=18, pady=(16, 4))
-        self.clients_status = label(clients, "Sin datos: inicia el hotspot con ICS.", size=11,
-                                    color=MUTED, anchor="w", wraplength=700, justify="left")
-        self.clients_status.grid(row=1, column=0, sticky="ew", padx=18, pady=(0, 8))
-        self.list_frame = ctk.CTkScrollableFrame(clients, fg_color="transparent")
-        self.list_frame.grid(row=2, column=0, sticky="nsew", padx=12, pady=(0, 8))
-        label(clients, "Bloqueo de internet y lista blanca: no disponibles con el motor actual.",
-              size=11, color="#ffd18a", anchor="w", wraplength=700, justify="left").grid(
-                  row=3, column=0, sticky="ew", padx=18, pady=(0, 16))
-
-    def show_neighbors(self, neighbors: list[dict[str, str]]) -> None:
-        for child in self.list_frame.winfo_children():
-            child.destroy()
-        if not neighbors:
-            label(self.list_frame, "No hay vecinos observados en este momento.", color=MUTED).pack(anchor="w", padx=6)
+    def show_qr(self, qr: Any = None, error: str = "") -> None:
+        if qr is None:
+            self.qr_image = None
+            self.qr_label.configure(image=None, text=error or "El QR aparece\nal iniciar")
             return
-        for neighbor in neighbors:
-            label(self.list_frame,
-                  f"{neighbor['ip']}   ·   {neighbor['mac']}   ·   {neighbor['state']}",
-                  anchor="w").pack(fill="x", padx=6, pady=4)
+        image = qr.make_image().convert("RGB").resize((144, 144), Image.Resampling.NEAREST)
+        self.qr_image = ctk.CTkImage(light_image=image, dark_image=image, size=(144, 144))
+        self.qr_label.configure(image=self.qr_image, text="")
+
+    def show_devices(self, devices: list[dict[str, str]]) -> None:
+        rows = tuple((device["id"], device["name"], device["ip"]) for device in devices)
+        if rows == self._device_rows:
+            return
+        self._device_rows = rows
+        self.device_count.configure(text=f"{len(rows)} conexión(es) confirmada(s) por Windows")
+        for child in self.device_list.winfo_children():
+            child.destroy()
+        if not rows:
+            label(self.device_list, "Aún no hay conexiones confirmadas.", size=11, color=MUTED).pack(anchor="w")
+        for _, name, ip in rows:
+            label(self.device_list, f"{name}  ·  {ip or 'IP no disponible'}",
+                  size=11, anchor="w").pack(fill="x", pady=2)
+
+
