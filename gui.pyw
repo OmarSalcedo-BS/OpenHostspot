@@ -6,6 +6,18 @@ from tkinter import messagebox
 
 
 if __name__ == "__main__":
+    if sys.argv[1:] == ["--verify-bundle"]:
+        try:
+            from gui import OpenHotspotApp
+
+            app = OpenHotspotApp(auto_check=False)
+            app.withdraw()
+            app.update()
+            app._finish_close()
+        except Exception:
+            logging.exception("Falló la verificación del ejecutable")
+            sys.exit(1)
+        sys.exit(0)
     try:
         from gui import main
 

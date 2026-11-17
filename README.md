@@ -87,6 +87,33 @@ El inicio gráfico oculta la consola propia de la aplicación; una terminal
 desde la que se lance permanece abierta, y Windows sigue mostrando el aviso
 UAC. Los errores se registran en `%LOCALAPPDATA%\OpenHotspot\openhotspot.log`.
 
+### Generar el ejecutable
+
+En Windows, instala las dependencias y ejecuta desde la carpeta del proyecto:
+
+```powershell
+.\venv\Scripts\python.exe build.py
+```
+
+El script usa PyInstaller y crea `dist\OpenHotspot-VERSION\OpenHotspot.exe`.
+Distribuye **toda la carpeta**, incluida `_internal`; el ejecutable no necesita
+que Python esté instalado en el equipo de destino. El script comprueba que la
+interfaz empaquetada pueda abrirse sin iniciar el hotspot y genera `LICENSE` y
+`THIRD_PARTY_LICENSES` con los avisos disponibles de las dependencias.
+Comprueba también los términos de terceros antes de redistribuir.
+
+La información compartida está en `app_info.json`. Cada compilación correcta
+incrementa automáticamente el componente patch (por ejemplo, 1.0.2 → 1.0.3)
+en ese archivo, en la aplicación y en las propiedades del ejecutable. Una
+compilación fallida no debe incrementar la versión; si ya existe la carpeta
+de destino, el script se detiene sin sobrescribirla. Puedes editar manualmente
+major y minor en `app_info.json` antes de compilar.
+
+El ejecutable solicita autorización de administrador al abrirse. No está firmado
+digitalmente: Windows o SmartScreen pueden mostrar advertencias y, dependiendo
+de la configuración del sistema, el inicio automático con elevación puede
+requerir autorización o estar bloqueado.
+
 ### Ajustes de la aplicación
 
 En **Ajustes**, guarda el nombre, la contraseña y el origen mediante el botón
@@ -166,6 +193,9 @@ Observan vecinos y contadores del adaptador, y realizan la prueba de velocidad.
 
 #### `core/settings_store.py` y `core/windows_integration.py`
 Guardan las preferencias y gestionan el inicio de sesión y la solicitud de energía.
+
+#### `app_info.json` y `build.py`
+Información y versión compartidas, y generación de la distribución de Windows.
 
 #### `ui/`
 Vistas y estilos compartidos de la interfaz gráfica.

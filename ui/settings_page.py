@@ -4,6 +4,7 @@ from typing import Any
 
 import customtkinter as ctk
 
+from app_info import APP_INFO
 from .theme import ACCENT, MUTED, card, label
 
 
@@ -74,3 +75,16 @@ class SettingsPage(ctk.CTkFrame):
         ctk.CTkOptionMenu(row, variable=app.speed_unit, values=["Automático", "Mbps"],
                           command=lambda _: app._visual_changed(), fg_color="#24384a",
                           button_color="#31516a").pack(side="left")
+
+        about = card(content)
+        about.pack(fill="x", pady=(0, 12))
+        label(about, "Acerca de", size=16, bold=True).pack(anchor="w", padx=20, pady=(16, 10))
+        text = (f"{APP_INFO['name']} {APP_INFO['version']}\n{APP_INFO['description']}\n"
+                f"{APP_INFO['copyright']}\nLicencia del proyecto: {APP_INFO['license']}\n\n"
+                "Software proporcionado «tal cual», sin garantías. Consulta LICENSE para "
+                "los términos completos; las dependencias tienen sus propias licencias. "
+                "La conectividad depende de Windows y del hardware; "
+                "utiliza la aplicación únicamente en redes que tengas autorización para administrar.")
+        self.about_text = label(about, text, size=11, color=MUTED, wraplength=700,
+                                justify="left", anchor="w")
+        self.about_text.pack(fill="x", padx=20, pady=(0, 16))

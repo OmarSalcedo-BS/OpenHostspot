@@ -97,6 +97,22 @@ def test_startup_registry_error_propagates(tmp_path):
             manager.set_enabled(True)
 
 
+def test_frozen_startup_uses_executable(tmp_path):
+    import sys
+
+    executable = tmp_path / "OpenHotspot.exe"
+    executable.touch()
+    with patch.object(sys, "frozen", True, create=True), patch.object(sys, "executable", str(executable)):
+        manager = StartupManager(tmp_path / "missing.pyw")
+        with patch.object(manager, "status", return_value="disabled"), \
+             patch("core.windows_integration.winreg.CreateKeyEx") as key, \
+             patch("core.windows_integration.winreg.SetValueEx") as write:
+            manager.set_enabled(True)
+        assert str(executable) in manager.command
+        assert "pythonw.exe" not in manager.command
+        assert write.call_args.args[-1] == manager.command
+
+
 def test_sleep_inhibitor_requires_same_thread_and_releases():
     inhibitor = SleepInhibitor()
     function = MagicMock(return_value=1)

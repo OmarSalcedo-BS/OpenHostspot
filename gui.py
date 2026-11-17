@@ -579,14 +579,16 @@ def _configure_logging() -> Path:
 
 def main() -> int:
     if not NetworkManager.is_admin():
+        frozen = getattr(sys, "frozen", False)
         script = os.path.join(os.path.dirname(os.path.abspath(__file__)), "gui.pyw")
-        executable = os.path.join(os.path.dirname(sys.executable), "pythonw.exe")
+        executable = sys.executable if frozen else os.path.join(os.path.dirname(sys.executable), "pythonw.exe")
         if not os.path.isfile(executable):
             messagebox.showerror("OpenHotspot", f"No se encontró el intérprete gráfico: {executable}")
             return 1
-        parameters = subprocess.list2cmdline([script, *sys.argv[1:]])
+        parameters = subprocess.list2cmdline(sys.argv[1:] if frozen else [script, *sys.argv[1:]])
         result = ctypes.windll.shell32.ShellExecuteW(
-            None, "runas", executable, parameters, os.path.dirname(script), 1
+            None, "runas", executable, parameters,
+            os.path.dirname(executable) if frozen else os.path.dirname(script), 1
         )
         if result <= 32:
             messagebox.showerror(

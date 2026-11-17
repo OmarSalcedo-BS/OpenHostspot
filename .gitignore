@@ -32,6 +32,7 @@ Thumbs.db
 # Build/Distribution
 build/
 dist/
+.build.lock
 *.egg-info/
 *.egg
 

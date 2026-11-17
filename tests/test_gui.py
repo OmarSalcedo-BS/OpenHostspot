@@ -111,10 +111,26 @@ def test_missing_pythonw_is_reported_instead_of_opening_console():
         error.assert_called_once()
 
 
+def test_frozen_executable_requests_elevation_without_pythonw():
+    import gui
+    with patch.object(gui.sys, "frozen", True, create=True), \
+         patch.object(gui.sys, "executable", r"C:\OpenHotspot\OpenHotspot.exe"), \
+         patch.object(gui.sys, "argv", ["OpenHotspot.exe"]), \
+         patch.object(gui.NetworkManager, "is_admin", return_value=False), \
+         patch("gui.os.path.isfile", return_value=True), \
+         patch("gui.ctypes.windll.shell32.ShellExecuteW", return_value=33) as execute:
+        assert gui.main() == 0
+        assert execute.call_args.args[2] == r"C:\OpenHotspot\OpenHotspot.exe"
+        assert execute.call_args.args[3] == ""
+
+
 def test_settings_controls_are_real_and_follow_session_state(app):
     app._show_page("settings")
     assert app._current_page == "settings"
     assert app.settings_page.master is app.hotspot_page.master
+    from app_info import APP_INFO
+    assert APP_INFO["version"] in app.settings_page.about_text.cget("text")
+    assert "MIT" in app.settings_page.about_text.cget("text")
     app.settings_page.password_switch.toggle()
     assert app.hotspot_page.password_entry.cget("show") == ""
     app.settings_page.share_switch.toggle()

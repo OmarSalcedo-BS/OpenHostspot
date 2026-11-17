@@ -17,6 +17,9 @@ Get-NetAdapter -IncludeHidden
 
 # Ejecutar pruebas
 .\venv\Scripts\python.exe -m pytest tests -q
+
+# Generar la próxima versión del ejecutable en dist\OpenHotspot-VERSION
+.\venv\Scripts\python.exe build.py
 ```
 
 Selecciona solo la conexión de internet: el adaptador virtual se detecta
@@ -40,3 +43,7 @@ y configurar QR, avisos y unidades. El inicio puede requerir confirmación UAC;
 la prevención no impide suspensión manual ni que se apague la pantalla.
 El archivo `%LOCALAPPDATA%\OpenHotspot\settings.json` guarda la contraseña
 cifrada con DPAPI para el usuario de Windows que ejecuta la aplicación.
+
+Para compartir el ejecutable, copia la carpeta de versión completa, incluida
+`_internal`. `app_info.json` contiene la versión central; el script incrementa
+el patch al compilar correctamente. El ejecutable solicita UAC y no está firmado.

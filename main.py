@@ -10,6 +10,7 @@ import argparse
 import time
 from typing import Optional
 
+from app_info import APP_INFO
 from core.network_manager import NetworkManager
 from core.ics_bridge import ICSBridge
 from core.client_monitor import ClientMonitor
@@ -213,7 +214,7 @@ Ejemplos de uso:
     parser.add_argument("--ssid", type=str, default="OpenHotspot", help="Nombre del hotspot (default: OpenHotspot)")
     parser.add_argument("--password", type=str, default="12345678", help="Contraseña del hotspot")
     parser.add_argument("--public-if", type=str, default="Ethernet", help="Interfaz pública (default: Ethernet)")
-    parser.add_argument("--version", action="version", version="OpenHotspot 1.0.0")
+    parser.add_argument("--version", action="version", version=f"{APP_INFO['name']} {APP_INFO['version']}")
     
     args = parser.parse_args()
     

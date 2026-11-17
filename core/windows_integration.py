@@ -16,7 +16,10 @@ class StartupManager:
     def __init__(self, script: Path) -> None:
         self.script = script.resolve()
         self.pythonw = Path(sys.executable).with_name("pythonw.exe")
-        self.command = subprocess.list2cmdline([str(self.pythonw), str(self.script)])
+        self.frozen = getattr(sys, "frozen", False)
+        self.executable = Path(sys.executable) if self.frozen else self.pythonw
+        args = [str(self.executable)] if self.frozen else [str(self.pythonw), str(self.script)]
+        self.command = subprocess.list2cmdline(args)
 
     def status(self) -> str:
         try:
@@ -35,7 +38,7 @@ class StartupManager:
         if self.status() == "conflict":
             raise RuntimeError("Ya existe una entrada de inicio OpenHotspot diferente; no se modificó.")
         if enabled:
-            if not self.pythonw.is_file() or not self.script.is_file():
+            if not self.executable.is_file() or (not self.frozen and not self.script.is_file()):
                 raise RuntimeError("No se encontró el intérprete gráfico o la aplicación.")
             if len(self.command) > 260:
                 raise RuntimeError("La ruta de inicio supera el límite de Windows de 260 caracteres.")

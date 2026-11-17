@@ -1,0 +1,8 @@
+{
+  "name": "OpenHotspot",
+  "version": "1.0.2",
+  "description": "Punto de acceso Wi-Fi Direct para Windows",
+  "author": "OpenHotspot Contributors",
+  "license": "MIT",
+  "copyright": "Copyright (c) 2026 OpenHotspot Contributors"
+}
